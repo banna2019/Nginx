@@ -1,0 +1,152 @@
+
+Nginx安装:
+	CentOS安装Nginx:
+cat >>/etc/yum.repos.d/nginx.repo<<EOF
+[nginx-stable]
+name=nginx stable repo
+baseurl=http://nginx.org/packages/centos/$releasever/$basearch/
+gpgcheck=0
+enabled=0
+gpgkey=https://nginx.org/keys/nginx_signing.key
+
+[nginx-mainline]
+name=nginx mainline repo
+baseurl=http://nginx.org/packages/mainline/centos/$releasever/$basearch/
+gpgcheck=0
+enabled=0
+gpgkey=https://nginx.org/keys/nginx_signing.key
+EOF
+
+		yum makecache
+		yum install nginx -y
+		nginx -v
+
+		rpm -ql nginx 	#查看已安装包在系统安装了哪些文件 
+		systemctl start nginx
+		ps -ef |grep nginx
+
+
+	Ubuntu安装Nginx:
+		curl http://nginx.org/keys/nginx_signing.key |apt-key add
+		echo "deb http://nginx.org/packages/ubuntu $(lsb_release -cs) nginx deb-src http://nginx.org/packages/ubuntu $(lsb_release -cs) nginx"
+		apt-get install nginx
+		nginx –v
+		dpkg -L nginx 	#查看已安装包在系统安装了哪些文件
+
+	编译安装Nginx:
+		CentOS编译
+			yum install gcc pcre-devel openssl-devel
+			curl -o nginx-1.12.1.tar.gz http://nginx.org/download/nginx-1.12.1.tar.gz
+			tar zxvf nginx-1.12.1.tar.gz
+			cd nginx-1.12.1
+			./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module -- with-http_stub_status_module --with-stream=dynamic
+			make && make install
+
+		Ubuntu编译
+			apt-get install libpcre3-dev libssl-dev
+			curl -o nginx-1.12.1.tar.gz http://nginx.org/download/nginx-1.12.1.tar.gz
+			tar zxvf nginx-1.12.1.tar.gz
+			cd nginx-1.12.1
+			./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module -- with-http_stub_status_module --with-stream=dynamic
+			make && make install
+
+	编译参数:
+		--prefix=PATH 			安装目录
+		--sbin-path=PATH 		nginx可执行文件目录
+		--modules-path=PATH 	模块路径
+		--conf-path=PATH 		配置文件路径
+		--error-log-path=PATH 	错误日志路径
+		--http-log-path=PATH 	访问日志路径
+		--pid-path=PATH 		pid路径
+		--lock-path=PATH 		lock文件路径
+		--user=USER 			运行用户
+		--group=GROUP 			运行组
+		--with-threads 			启用多线程
+		--with-http_ssl_module 	提供HTTPS支持
+		--with-http_v2_module 	HTTP2.0协议
+		--with-http_realip_module 			获取真实客户端IP
+		--with-http_image_filter_module 	图片过滤模块,比如缩略图、旋转等
+		--with-http_geoip_module 			基于客户端IP获取地理位置
+		--with-http_sub_module 				在应答数据中可替换静态页面源码内容
+		--with-http_dav_module 				为文件和目录指定权限,限制用户对页面有不同的访问权限
+		--with-http_flv_module 				支持flv流媒体播放
+		--with-http_mp4_module 				支持mp4流媒体播放
+		--with-http_gzip_static_module 		针对静态文件,允许发送.gz文件扩展名的预压缩文件给客户端,使用是gzip_static on
+		--with-http_gunzip_static_module 	gzip 用于对不支持gzip压缩的客户端使用,先解压缩后再响应。
+		--with-http_secure_link_module 		检查链接,比如实现防盗链
+		--with-http_stub_status_module 		获取nginx工作状态模块
+		--with-mail_ssl_module 				启用邮件SSL模块
+		--with-stream 						启用TCP/UDP代理模块
+		--add-module=PATH 					启用扩展模块
+		--with-stream_realip_module 		形式,获取真实客户端IP
+		--with-stream_geoip_module 			流形式,获取客户端IP地理位置
+		--with-pcre 						启用PCRE库,rewrite需要的正则库
+		--with-pcre=DIR 					指定PCRE库路径
+		--with-zlib=DIR 					指定zlib库路径,gzip模块依赖
+		--with-openssl=DIR 					指定openssl库路径,ssl模块依赖
+
+	Nginx命令行参数:
+		/usr/local/nginx/sbin/nginx –h
+		-c file 指定配置文件
+		-g directives 设置全局配置指令,例如nginx -g“pid /var/run/nginx.pid” -t 检查配置文件语法
+		-v 打印nginx版本
+		-V 打印nginx版本,编译器版本和配置
+		-s 发送信号
+			信号:
+				stop 快速关闭
+				quit 正常关闭,等待工作进程完成当前请求后停止nginx进程
+				reload 重新加载配置文件
+				reopen 重新打开日志文件
+
+
+配置文件详解及调优:
+	配置文件结构:
+		nginx.conf配置文件由指令控制的模块组成,指令分为简单指令和块指令,一个简单指令由名称和参数组成, 空格分隔,分号结尾。块指令与简单指令相同的结构,但不是以分号结尾,而是以大括号包围的一组附加指令结束.
+		块指令如下:
+			全局块: 配置nginx全局的指令 
+			events块: 配置nginx与用户连接相关指令 
+			http块: 提供HTTP服务 
+			server块: 配置虚拟主机,一个http可以有多个server 
+			location块: 匹配URL后做什么动作
+
+	配置文件指令详解:
+		默认配置文件详解
+
+	配置基本调优:
+		增加工作进程数、连接数
+		工作进程CPU绑定
+		增大打开最大文件数
+		sendfile提升文件传输
+		启用文件压缩(gzip)
+		启用客户端缓存(expires)
+			其他客户端缓存策略:
+				• Last-Modified+If-Modified-Since
+				• ETag+If-None-Match
+				• Cache-Control add_header Cache-Contorl max-age=60
+		错误页面优雅显示 
+		屏蔽输出版本
+
+	常用内置变量:
+		变量名						描述
+		$remote_addr 				客户端IP地址
+		$remote_user 				客户端用户名,auth_basic认证的用户
+		$time_local 				访问时间和时区
+		$request 					请求的HTTP方法、URI和协议版本
+		$status 					响应的HTTP状态码
+		$body_bytes_sent 			响应客户端文件内容大小
+		$http_referer 				从哪个页面链接过来的
+		$http_user_agent 			客户端浏览器信息
+		$http_x_forwarded_for 		客户端IP地址,只有在配置代理或负载均衡下请求头才添加该项
+		$host 						请求头中Host字段的值
+		$request_filename 			请求路径及文件名
+		$request_uri 				完整的URI,包含请求参数
+		$uri 						不包含请求参数
+		$http_cookie 				客户端cookie
+		$query_string和$args 		请求中的参数
+		$server_name 				Nginx的服务器名称
+		$request_time 				从接收用户请求的第一个字节到发送响应数据时间。
+		$upstream_addr 				后端节点IP
+		$upstream_response_time 	与后端建立连接到接收完响应数据时间
+		$upsrtream_cache_status 	缓存后端节点响应数据状态,有MISS、HIT、EXPIRED、UPDATING和STALE
+
+

@@ -1,0 +1,307 @@
+
+一、虚拟主机:
+	虚拟主机
+		• 基于域名
+				server {
+				       listen 80;
+				       server_name nextdevops.cn www.nextdevops.cn;
+				} server {
+				       listen 80;
+				       server_name nextdevops.com www.nextdevops.com;
+				} 
+				server {
+						listen 80;
+						server_name nextdevops.net www.nextdevops.net;
+				}
+
+		• 基于端口
+				server {
+				       listen 81;
+				       server_name localhost;
+				} server {
+				       listen 82;
+				       server_name localhost;
+				} 
+				server {
+						listen 83;
+						server_name localhost;
+				}
+
+		• 基于IP
+				server {
+				       listen 192.168.1.101:80;
+				       server_name localhost;
+				} server {
+				       listen 192.168.1.102:80;
+				       server_name localhost;
+				} 
+				server {
+						listen 192.168.1.103:80;
+						server_name localhost;
+				}
+
+		• 基于名称与IP地址
+				server {
+				       listen 192.168.1.100:80;
+				       server_name nextdevops.cn www.nextdevops.cn;
+				} server {
+				       listen 192.168.1.100:80;
+				       server_name nextdevops.com www.nextdevops.com;
+				} 
+				server {
+						listen 192.168.1.101:80;
+						server_name nextdevops.cn www.nextdevops.cn;
+				}
+
+	请求处理流程
+		• server_name指令
+				1、精确名称
+					server_name指令
+					例如:server_name nextdevops.cn www.nextdevops.cn;
+				2、通配符
+					例如:
+					server_name *.nextdevops.cn www.nextdevops.cn; server_name mail.*;
+				3、正则表达式
+					例如:
+					server_name "~^www\d+\.nextdevops\.cn$"; server_name "~^\d{1,3}\.nextdevops\.cn$"; server_name "~^www\.(?P<domain>.+)$";
+
+				匹配优先级:精确名称->开头通配符名称->结尾通配符名称->正则表达式
+
+	新主机小结:
+		监听指令判断请求的IP地址和端口->server_name指令->默认虚拟主机
+
+
+二、反向代理:
+	图片(Nginx-反向代理)
+	图片(Nginx-反向代理FastCGI)
+
+	1.FastCGI代理(php-fpm):
+		1、安装php依赖的第三方库
+			yum install gd-devel libxml2-devel libcurl-devel libjpeg-devel libpng-devel
+		2、编译安装php
+			#编译
+			tar zxvf php-5.6.31.tar.gz
+./configure --prefix=/usr/local/php \ --with-config-file-path=/usr/local/php/etc \
+--with-mysql --with-mysqli \
+--with-openssl --with-zlib --with-curl --with-gd \
+--with-jpeg-dir --with-png-dir --with-iconv \
+--enable-fpm --enable-zip --enable-mbstring
+make -j 4 && make install
+
+			#配置php
+				cp php.ini-production /usr/local/php/etc/php.ini
+				vim /usr/local/php/etc/php.ini
+				date.timezone = Asia/Shanghai
+		3、配置php-fpm
+	cp /usr/local/php/etc/php-fpm.conf.default /usr/local/php/etc/php-fpm.conf 
+	vim /usr/local/php/etc/php-fpm.conf
+
+user = nginx
+group = nginx
+pid = run/php-fpm.pid
+
+	cp sapi/fpm/init.d.php-fpm /etc/init.d/php-fpm
+	chmod +x /etc/rc.d/init.d/php-fpm
+	/etc/init.d/php-fpm start 
+	systemctl start php-fpm
+	service php-fpm start
+
+
+		4、Nginx配置php程序通过FastCGI转发给php-fpm
+server {
+	listen    80;
+	server_nanme  localhost;
+	access_log logs/wp.access.log main;
+	location / {
+	  root html/wordpress;
+	  index index.php index.html inndex.htm;
+	}
+	location ~\.php${
+	  root html/wordpress;
+	  fastcgi_pass  127.0.0.1:9000;
+	  fastcgi_index  index.php;
+	  fastcgi_param  SCRIPT_FILENAME $document_root@fascgi_script_name;
+	  include  fastcgi_params;
+	}
+}
+
+
+
+	2.FastCGI代理配置优化:
+http{
+	......
+	fastcgi_cache_path /usr/local/nginx/fastcgi_cache levels=1:2 keys_zone=fastcgi_cache_zone:128m inactive=5m max_size=10g;	#缓存目录 目录层级缓存名称和大小 移除多长时间未访问的缓存数据 最大占用磁盘空间
+
+	fastcgi_buffering on;					# 默认on,是否缓存FastCGI响应
+	fastcgi_buffer_size 64k;				# 缓存区大小
+	fastcgi_buffers 8 32k;					# 指定多少与多大缓存区来缓存FastCGI响应
+	fastcgi_temp_path fastcgi_temp 1 2;		# 默认目录fastcgi_temp
+	fastcgi_max_temp_file_size 1024m;		# 默认1024m,单个临时文件最大大小
+	fastcgi_temp_file_write_size 128k;		# 一次写入临时文件数据大小
+	fastcgi_request_buffering on;			# 默认on,是否先缓存整个客户端请求正文再发送FastCGI服务器 
+	fastcgi_connect_timeout 60s;			# 默认60s,与FastCGI服务器建立连接超时时间
+	fastcgi_read_timeout 300s;				# 默认60s,读取FastCGI服务器响应超时时间
+	fastcgi_send_timeout 300s;				# 默认60s,发送请求到FastCGI服务器超时时间
+
+	server {
+	  listen 80;
+	  server_name localhost;
+	  location / {
+	    root html/wordpress;
+	    index index.php index.html;
+	  }
+	  location ~\.php$ {
+	    root html/wordpress;
+	    fastcgi_pass  127.0.0.1:9000;
+	    fastcgi_index  index.php;
+	    fastcgi_param  SCRIPT_FILENAME $document_root$fastcfgi_script_name;
+	    include        fastcgi_params;
+
+	    fastcgi_cache  fastcgi_cache_zone;		# 指定缓存区名称
+	    fastcgi_cache_key  $host$request_uri;	# 定义缓存的key,根据md5值为缓存文件名
+	    fastcgi_cache_valid 200 302 10m;		# 为不同状态码设置缓存时间
+	    fastcgi_cache_valid 301 1d;
+	    fastcgi_cache_valid any 1m;
+	  }
+	}
+}
+
+
+	3.第三方清理缓存模块
+		# 重新编译Nginx,添加清理缓存模块
+	git clone https://github.com/FRiCKLE/ngx_cache_purge
+	/usr/local/nginx/sbin/nginx –V
+	cd nginx-1.12.1
+	./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module --with- http_stub_status_module --with-stream=dynamic
+--add-module=/usr/local/nginx/ngx_cache_purge 
+pkill nginx
+	cp objs/nginx /usr/local/nginx/sbin/nginx
+	cp objs/nginx /usr/local/nginx/sbin/nginx
+
+		# 添加清理缓存功能
+location ~ /purge(*){
+	allow 127.0.0.1;
+	deny all;
+	  proxy_cache_purge proxy_cache $host$1;
+	  access_log logs/cache.log main;
+}
+
+
+	4.FastCGI代理配置优化
+
+[global]
+pid = run/php-fpm.pid
+[www]
+user = nginx
+group = nginx
+listen = 127.0.0.1:9000
+pm = dynamic
+pm.max_children = 5				# 子进程最大数量
+pm.start_servers = 2			# 在启动时创建的子进程数量
+pm.min_spare_servers = 1		# 空闲子进程的最小数量
+pm.max_spare_servers = 3		# 空闲子进程的最大数量
+pm.process_idle_timeout = 10s	# 一个空闲进程空闲多少秒后被杀死
+pm.max_requests = 500 			每个子进程处理完多少请求之后自动重启,为防止PHP第三方库内存泄露问题.设置0则不自动重启,会一直处理请求.
+
+
+	5.FastCGI代理配置优化
+		vim /usr/local/php/etc/php-fpm.conf
+
+listen = /usr/local/php/php-fcgi.sock;
+listen.owner = nginx
+listen.group = nginx
+
+	# nginx配置
+location ~ \.php$ {
+	root html/wordpress;
+	fastcgi_pass  unix:/usr/local/php/php-fcgi.sock;
+	fastcgi_index  index.php;
+	fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+	include  fastcgi_params;
+}
+
+
+	6.HTTP代理(Tomcat)
+server {
+	listen 80;
+	server_name localhost;
+	access_log logs/test_access.log;
+
+	location / {
+	  proxy_pass  http://127.0.0.1:8080;
+	  proxy_set_header Host  $host;
+	  proxy_set_header X-Real-IP  $remote_addr;
+	  proxy_set_header X-Forwarded-For  $proxy_add_x_forwarded_for;
+	}
+}
+
+
+
+	7.HTTP代理配置优化(proxy_cache)
+
+http { 
+  ......
+  proxy_cache_path /usr/local/nginx/proxy_cache levels=1:2 keys_zone=proxy_cache_zone:128m inactive=5m max_size=10g;
+  proxy_buffering on; 				# 默认on,是否缓存后端服务器响应
+  proxy_buffer_size 64k; 			# 缓存区大小
+  proxy_buffers 8 32k; 				# 指定多少与多大缓存区来缓存后端服务器响应
+  proxy_temp_path proxy_temp 1 2; 	# 默认目录proxy_temp
+  proxy_max_temp_file_size 1024m; 	# 默认1024m,单个临时文件最大大小
+  proxy_temp_file_write_size 128k; 	# 默认16k,一次写入临时文件数据大小
+  proxy_request_buffering on; 		# 默认on,是否先缓存整个客户端请求正文再发送后端服务器 
+  proxy_ignore_headers Set-Cookie;	# 忽略缓存cookie
+
+  proxy_set_header Host $host; # 添加请求头Host字段值为本机IP地址
+  proxy_set_header X-Real-IP $remote_addr; # 添加请求头X-Real-IP值为客户端IP 
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; # 原始客户端IP和代理IP地址
+  proxy_connect_timeout 60s;	# 默认60s,与后端服务器建立连接超时时间 
+  proxy_read_timeout 300s;		# 默认60s,读取后端服务器响应超时时间
+  proxy_send_timeout 300s;		# 默认60s,发送请求到后端服务器超时时间
+
+  server {
+    listen 88;
+    server_name localhost;
+    # 动态资源不做缓存
+    location / {
+      proxy_pass http://192.168.1.100 8080;
+    }
+
+    # 只缓存静态文件
+    location ~ \.(html|css|js|jpg|png|gif)$ {
+      root /usr/local/apache-tomcat-8.0.45/webapps/ROOT;
+      proxy_cache_proxy_cache_zone; 		# 指定缓存区名称
+      proxy_cache_key $host$request_uri;	# 定义缓存的key,根据md5值为缓存文件名
+      proxy_cache_valid 200 302 10m;		# 为不同状态码设置缓存时间
+      proxy_cache_valid 301 1d; 
+      proxy_cache_valid any 1m;
+      # add_header X-Cache $upstream_cache_status; # 添加响应头,测试是否命中;代理服务器才有的变量
+    }
+  }
+}
+
+
+三、TCP与UDP代理
+stream {
+	server {
+	  listen 88;
+	  proxy_connect_timeout 1s;
+	  proxy_timeout 1m;
+	  proxy_pass 192.168.1.100:8080;
+	}
+	server {
+	  listen 89;
+	  proxy_connect_timeout 1s;
+	  proxy_timeout 1m;
+	  proxy_pass 192.168.1.100:80;
+	server {
+	  listen 53 udp;
+	  proxy_responses 1;
+	  proxy_timeout 20s;
+	  proxy_pass 192.168.1.100:53;
+	} 
+	# UNIX域套接字
+	server {
+	  listen 12345;
+	  proxy_pass unix:/tmp/stream.socket;
+	}
+}

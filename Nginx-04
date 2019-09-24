@@ -1,0 +1,16 @@
+
+负载均衡
+	负载均衡是什么
+	upstream块
+	upstream调度算法 
+	upstream内置变量
+
+	
+location块
+URL Rewrite
+页面缓存
+安全配置
+常用模块
+平滑升级
+常见问题及原因分析
+Etcd+Confd实现Nginx配置文件自动管理
