@@ -1,0 +1,171 @@
+
+
+
+Nginx高可用性(HA):
+	Keepalived高可用软件介绍:
+		Keepalived是一个可以快速构建高可用服务的解决方案.设计之初是针对LVS负载均衡提供高可用的,它集成对LVS集群管理,包括健康检查、故障剔除等功能.
+		Keepalived使用VRRP协议实现主备模式,当主服务器发生故障,备服务器接管.
+
+		工作原理：
+			VRRP实例中分为MASTER和BACKUP状态,组成一个热备组,MASTER状态及优先级高的服务器绑定一个虚拟IP(VIP),这个VIP对外提供服务.
+			热备组内服务器周期性发送VRRP通告信息,一方面BACKUP服务器确定MASTER是否存活,另一方面进行MASTER选举.如果MASTER宕机,BACKUP切换到MASTER状态,接管VIP,对外提供服务;当MASTER恢复后会自动加入热备组切换到MASTER状态,接管VIP,对外提供服务.		
+			
+	Nginx主备:
+		图片(Nginx主备)
+		global_defs {
+		  ...
+		}
+		vrrp_script check_nginx {
+		  scritp "[[ -f /usr/local/nginx/logs/nginx.pid ]] &&  exit 0 || exit 1"
+		  interval 1
+		  weight -20
+		}
+		vrrp_instance VI_1 {
+		  state MASTER
+		  interface eth0
+		  virtual_router_id 51
+		  priority 100
+		  advert_int 1
+		  
+		  authentication {
+		    auth_type PASS
+			auth_pass 1111
+		  }
+		  track_script {
+		    check_nginx
+		  }
+		  virtual_ipaddress {
+		    192.168.1.194/24
+		  }
+		}
+		
+	Nginx双主
+		图片(Nginx双主)
+		global_defs {
+		  ...
+		}
+		vrrp_script check_nginx {
+		  scritp "[[ -f /usr/local/nginx/logs/nginx.pid ]] &&  exit 0 || exit 1"
+		  interval 1
+		  weight -20
+		}
+		vrrp_instance VI_1 {
+		  state MASTER
+		  interface eth0
+		  virtual_router_id 51
+		  priority 100
+		  advert_int 1
+		  
+		  authentication {
+		    auth_type PASS
+			auth_pass 1111
+		  }
+		  track_script {
+		    check_nginx
+		  }
+		  virtual_ipaddress {
+		    192.168.1.191/24
+		  }
+		}
+		vrrp_instance VI_2 {
+		  state BACKUP
+		  interface eth0
+		  virtual_router_id 52
+		  priority 90
+		  advert_int 1
+		  authentication {
+		    auth_type PASS
+			auth_pass 1111
+		  }
+		  track_script {
+		    check_nginx
+		  }
+		  virtual_ipaddress {
+		    192.168.1.192/24
+		  }
+		}
+	
+	
+	图片(Nginx架构图)
+
+
+
+
+组件介绍(Etcd+Confd实现Nginx配置文件自动管理):
+	etcd: 分布式KV存储系统,一般用于共享配置和服务注册与发现.是CoreOS公司发起的一个开源项目.ETCD存储格式类似于文件系统,以根"/"开始下面一级级目录,最后一个是Key,一个key对应一个Value.
+	confd: 管理本地应用配置文件,使用etcd或consul存储的数据渲染模板,还支持redis、zookeeper.
+	confd有一个watch功能,通过HTTP API定期监测对应的etcd中目录变化,获取最新的Value,然后渲染模板,更新配置文件.
+
+	下载地址:
+		https://github.com/coreos/etcd/releases/download/v3.1.4/etcd-v3.1.4-linux-amd64.tar.gz
+		https://github.com/kelseyhightower/confd/releases/download/v0.11.0/confd-0.11.0-linux-amd64
+		https://pan.baidu.com/s/1c1M9kBm
+		
+	安装部署:
+		Etcd安装并启动: 
+			tar zxvf etcd-v3.1.4-linux-amd64.tar.gz
+			cd etcd-v3.1.4-linux-amd64
+			mv etcd etcdctl /usr/bin/
+			nohup etcd --data-dir /var/lib/data.etcd --listen-client-urls http://192.168.1.130:2379 --advertise-client-urls http://192.168.1.130:2379 &>/var/log/etcd.log &		
+
+		图片(key-value)
+		
+	
+		Confd部署与配置：
+			mv confd-0.11.0-linux-amd64 /usr/bin/confd
+			chmod +x /usr/bin/confd
+
+			1)创建配置目录
+				mkdir -p /etc/confd/{conf.d,templates}
+			2)创建资源模板
+				vi /etc/confd/conf.d/www.example.com.toml
+
+[template]
+src = "www.example.com.tmpl"
+dest = "/usr/local/nginx/conf/vhost/www.example.com.conf"
+keys = ["/nginx/www.example.com",]
+reload_cmd ="/usr/local/nginx/sbin/nginx -s reload"
+
+
+			3)创建Nginx配置文件模板
+				vim /etc/confd/templates/www.example.com.tmpl
+		
+upstream {{ getv "/nginx/www.example.com/server_name" }} {
+  {{ range getvs "/nginx/www.example.com/upstream/*" }}
+    server {{. }};
+  {{ end }}
+}
+server {
+  server_name {{ getv "/nginx/www.example.com/server_name" }};
+  location / {
+    proxy_pass http://{{ getv "/nginx/www.example.com/server_name" }};
+	proxy_set_header Host $host;
+	proxy_set_header X-Real-IP $remote_addr;
+	proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+}
+
+	
+	测试:
+		启动confd检测etcd中keys:
+			confd -watch -backend etcd -node http://192.168.1.130:2379
+			
+		设置key的值:
+			etcdctl -C http://192.168.1.130:2379 set /nginx/www.example.com/server_name "www.example.com"
+			etcdctl -C http://192.168.1.130:2379 set /nginx/www.example.com/upstream/server01 "192.168.1.120:80"
+			etcdctl -C http://192.168.1.130:2379 set /nginx/www.example.com/upstream/server02 "192.168.1.120:8080"
+			
+	etcd RestAPI
+		curl http://192.168.1.130:2379/v2/keys 	#查看所有keys
+		curl -X PUT http://192.168.1.130:2379/v2/keys/test/a_key -d value="789" 	#增改key
+		curl -X DELETE http://192.168.1.130:2379/v2/keys/test/a_key 	#删除key
+		curl http://192.168.1.130:2379/v2/keys/test/a_key 	#查询key的值
+		curl -X PUT http://192.168.1.130:2379/v2/keys/ttlvar -d value=“ttl_value” -d ttl=10 	#创建有效期的key,单位秒
+		curl -X PUT http://192.168.1.130:2379/v2/keys/dir -d dir=true 	#创建目录
+
+		curl http://192.168.1.130:2379/version 			#查看etcd版本
+		curl http://192.168.1.130:2379/v2/members 		#列出所有集群成员
+		curl http://192.168.1.130:2379/v2/stats/leader  #查看leader
+		curl http://192.168.1.130:2379/v2/stats/self 	#节点自身信息
+		curl http://192.168.1.130:2379/v2/stats/store 	#查看集群运行状态
+		

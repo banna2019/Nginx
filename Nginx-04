@@ -1,16 +1,145 @@
 
 负载均衡
-	负载均衡是什么
-	upstream块
-	upstream调度算法 
-	upstream内置变量
+	负载均衡是什么:
+		是把一个网络请求转发到一组服务器中可用的服务器上的设备
+		负载均衡器实现分为两种:
+			硬件: F5、NetScaler
+			软件: LVS、Nginx、HAProxy
+		负载均衡器技术原理上又分为:
+			四层: 数据包解封装到传输层,获取到IP和端口,然后转发
+			七层: 数据包解封装到应用层,获取到应用层数据,然后分析转发.
+			
+		图片(负载均衡)
+		
+	upstream块:
+		语法:
+			upstream name {
+			    server address [parameters];
+				...
+			}
+			
+		HTTP示例:
+			upstream http_backend {
+			    server backend1.example.com weight=5;
+				server backend2.example.com:8080 max_fails=3 fail_timeout=30s;
+				server unix:/tmp/backend3
+				server backup1.example.com:8080 backup;
+			}
+			server {
+			    listen 80;
+				server_name localhost;
+				location / {
+				    proxy_pass http://http_backend
+				}
+			}
+			
+		参数:
+			weight=number 		#设置服务器权重,默认为1
+			max_conns=number 	#限制代理服务器同时活动的最大连接数(1.11.5),默认为0,没有限制
+			max_fails=number 	#在fail_timeout参数持续时间内尝试与服务器通信的失败最大次数,默认为1,0为禁用
+			fail_timeout=time	#在这个时间内max_fails尝试连接最大失败次数,以及服务器不可用时间,默认10s
+			backup 				#将服务器标记为备份服务器,当前服务器不可用时,它将接受请求
+			down 				#将服务器标记为永久不可用
+		
+		TCP/UDP示例:
+			upstream tcp_backend {
+			    server backend1.example.com weight=5;
+				server backend2.example.com:8080 max_fails=3 fail_timeout=30s;
+				server unix:/tmp/backend3;
+				server backup1.example.com:8080 backup;
+			}
+			server {
+			    listen 12345;
+				location / {
+				    proxy_pass tcp_backend;
+				}
+			}
+			
+		指令:
+			keepalive connections	#激活连接缓存池,每个工作进程与上游服务器保持的最大空闲连接数
+		
+			HTTP示例:
+				upstream http_backend {
+				    server 127.0.0.1:8080;
+					keepalive 16;
+				}
+				server {
+				    ...
+					location / {
+					    proxy_pass http://http_backend;
+						proxy_http_version 1.1;
+						proxy_set_header Connection "";
+						...
+					}
+				}
+				
+			FastCGI示例:
+				upstream fastcgi_backend {
+				    server 127.0.0.1:9000;
+					keepalive 8;
+				}
+				server {
+				    ...
+					location / {
+					    fastcgi_pass fastcgi_backend;
+						fastcgi_keep_conn on;
+						...
+					}
+				}
+			
+			proxy_next_upstream 	#指定一下哪种情况下,将请求转发到下一个服务器,默认error和timeout
+			error 					#与服务器建立连接,向其他发送请求或读取响应头时发生错误
+			timeout 				#与服务器建立连接,向其发送请求或读取响应头时发生超时
+			invalid_header			#服务器返回空或无效的响应
+			http_500、http_502、http_504、http_403、http_404	#服务器响应状态码
+			off 					#禁止向下一个服务器转发请求
+			
+			
+	upstream调度算法:
+		ngx_http_upstream_module支持以下调度算法:
+		     轮训		#默认,以循环方式向上游服务器分发请求
+			 least_conn	#最少连接,下一个请求被分配到最小活动连接的上游服务器,同时考虑权重
+			 ip_hash 	#基于客户端IP地址做哈希,将同一哈希值的请求分配到上一次分配的上游服务器
+			 hash key[consistent]	#自定义key做哈希,该key可以是文本、变量以及它们组合;consistent是更改使用ketama一直
+			 列算法
+			 
+		ngx_stream_upstream_module模块只支持hash key和least_conn;
+		
+	upstream内置变量:
+		ngx_http_upstream_module模块内置变量:
+			$upstream_addr 				#上游服务器IP地址和端口或UNIX域套接字的路径.如果在请求处理期间连接了多个服务器,则他们地址用逗号分隔,例如“192.168.1.2:12345,192.168.1.3:12345,unix:/tmp/sock”.
+			$upstream_bytes_received 	#从上游服务器接收的字节数(1.11.4),多个连接的值用逗号分隔.
+			$upstream_cache_status 		#访问响应缓存的状态.有MISS、BYPASS、EXPIRED、STALE、UPDATING、REVALIDATED和HIT.
+			$upstream_connect_time 		#与上游服务器建立连接所需时间(1.9.1),在SSL情况下,包括握手上花费的时间.
+			$upstream_cookie_name 		#由上游服务器在Set-Cookie响应头中发送(1.7.1),只保持最后一台服务器响应的cookie
+			$upstream_header_time 		#与上游服务器接收响应报头时花费时间(1.7.10).
+			$upstream_response_length   #从上游服务器获得响应长度,单位字节,多个响应长度用逗号分隔.
+			$upstream_response_time 	#接收上游服务器的响应时花费时间.
+			$upstream_status 			#从上游服务器获取的响应状态码.多个响应状态码用逗号分隔.
 
+		ngx_stream_upstream_module模块内置变量(1.11.4):
+			$upstream_addr 				#上游服务器IP地址和端口或UNIX域套接字的路径.如果在代理期间连接了多个服务器,用逗号分隔,例如"192.168.1.2:12345,192.168.1.3:12345,unix:/tmp/sock".
+			$upstream_bytes_sent 		#发送到上游服务器的字节数.多个连接的值用逗号分隔.
+			$upstream_bytes_received 	#从上游服务器接收的字节数.多个连接的值用逗号分隔.
+			$upstream_connect_time 		#连接上游服务器的时间; 单位毫秒,多个连接的时间用逗号分隔.
+			$upstream_first_byte_time 	#接收数据的第一个字节时间.几个连接的时间由逗号分隔.
+			$upstream_session_time 		#会话保持时间(以秒为单位).
 	
-location块
-URL Rewrite
-页面缓存
-安全配置
-常用模块
-平滑升级
-常见问题及原因分析
-Etcd+Confd实现Nginx配置文件自动管理
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

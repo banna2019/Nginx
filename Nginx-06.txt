@@ -1,0 +1,81 @@
+
+其他常用模块:
+	模块名称:
+		GeoIP
+	ImageFilter
+	nginx-lua
+	
+	下载地址:
+		#lua第三方模块
+			https://github.com/openresty/lua-nginx-module/archive/v0.10.10.tar.gz
+		#IP对应国家数据库
+			http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz
+		#IP对应地区数据库
+			http://geolite.maxmind.com/download/geoip/database/GeoLiteCity.dat.gz
+		
+	编译安装:
+		安装依赖库：
+			yum install lua-devel GeoIP-devel –y
+		编译参数：
+			./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module --with-http_stub_status_module --with-stream=dynamic --with-http_secure_link_module --with-http_image_filter_module --with-http_geoip_module --add-module=../lua-nginx-module-0.10.10
+
+	GeoIP:
+		gunzip GeoIP.dat.gz
+		gunzip GeoLiteCity.dat.gz
+		mkdir /usr/local/nginx/geoip
+		mv GeoIP.dat GeoLiteCity.dat /usr/local/nginx/geoip
+		http {
+		  ...
+		  geoip_country /usr/local/nginx/geoip/GeoIP.dat;
+		  geoip_city /usr/local/nginx/geoip/GeoLiteCity.dat;
+		  log_format main '$geoip_city_country_name $geoip_region_name $geoip_city -'
+		                  '$remote_addr - $remote_user [$time_local] "$request"'
+						  '$status $body_bytes_sent "$http_referer"'
+						  '"$http_user_agent" "$http_x_forwarded for"';
+						  
+		    ...
+		}
+
+	ImageFilter:
+		示例:
+		  location /img/ {
+		    root html;
+			image_filter resize 150 100;
+			image_filter rotate 90;
+			error_page 415 = /empty;
+		  }
+		  location = /empty {
+		    empty_gif;
+		  }
+	
+	    动态生成缩略图示例:
+		  server {
+		    listen 80;
+			server_name localhost;
+			root html;
+			index index.html;
+			location ~* /img/.*_(\d+)x(\d+)\.(jpg|png|gif)$ {
+			  root html;
+			  set $img_width $1;
+			  set $img_height $2;
+			  image_filter resize $img_width $img_height;
+			  rewrite (.*)_.*(\..*) $1$2 break;
+			}
+		  }
+		  
+	Lua:
+	    环境测试示例:
+		  server {
+		    listen 80;
+			server_name locahost;
+			root html;
+			index index.html;
+			location /lua {
+			  default_type text/plain;
+			  content_by_lua_file /usr/local/nginx/conf/test.lua;
+			}
+		  }
+		  cat test.lua
+		  local headers = ngx.req.get_headers()
+		  ngx.say(header.HOST)
+		  
